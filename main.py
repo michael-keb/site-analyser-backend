@@ -35,7 +35,7 @@ from sse_starlette.sse import EventSourceResponse
 from store import ReportStore
 from analyser import run_analysis, discover_urls
 from email_service import send_report_email
-from pipedrive_service import create_lead as pipedrive_create_lead
+from pipedrive_service import create_deal as pipedrive_create_deal
 
 # ── Load env ──────────────────────────────────────────────────────────────────
 # Load all env files — each call with override=True means last one wins.
@@ -57,13 +57,14 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", "15"))
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
+SHARE_BASE_URL = (os.environ.get("SHARE_BASE_URL") or "").strip().rstrip("/")
 
 import logging
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
 _logger.info(f"FIRECRAWL_API_KEY: {'OK (fc-***)' if FIRECRAWL_API_KEY.startswith('fc-') else 'MISSING or invalid'}")
 _logger.info(f"OPENAI_API_KEY: {'OK (sk-***)' if OPENAI_API_KEY.startswith('sk-') else 'not set — using fallback analysis'}")
-_logger.info(f"PIPEDRIVE_API_KEY: {'OK' if PIPEDRIVE_API_KEY else 'not set — leads not created'}")
+_logger.info(f"PIPEDRIVE_API_KEY: {'OK' if PIPEDRIVE_API_KEY else 'not set — deals not created'}")
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ async def discover(url: str = Query(..., description="Root URL to map")):
 @app.post("/api/create-lead")
 async def create_lead(payload: CreateLeadPayload):
     """
-    Create a Pipedrive lead before starting analysis.
+    Create a Pipedrive deal before starting analysis.
     Body: { name, email, phone, url }
     Returns { ok: true } on success, { ok: false, error: "..." } on failure.
     Frontend must call this and wait for success before proceeding to analysis.
@@ -157,10 +158,10 @@ async def create_lead(payload: CreateLeadPayload):
     }
     if not contact.get("name") and not contact.get("email"):
         return JSONResponse({"ok": False, "error": "Name or email required"})
-    result = pipedrive_create_lead(PIPEDRIVE_API_KEY, contact, normalised)
+    result, err = pipedrive_create_deal(PIPEDRIVE_API_KEY, contact, normalised)
     if result:
         return JSONResponse({"ok": True})
-    return JSONResponse({"ok": False, "error": "Failed to create lead"})
+    return JSONResponse({"ok": False, "error": err or "Failed to create deal"})
 
 
 @app.get("/api/check")
@@ -279,6 +280,15 @@ async def cancel_job(payload: dict):
     return JSONResponse({"ok": True})
 
 
+@app.get("/api/report/{report_id}/meta")
+async def report_meta(report_id: str):
+    """Return report metadata (domain, etc.) for shared link display."""
+    meta = report_store.get_meta(report_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    return JSONResponse({"domain": meta.get("domain", "report"), "reportId": report_id})
+
+
 @app.get("/api/report/{report_id}", response_class=HTMLResponse)
 async def serve_report(report_id: str):
     """Serve the generated HTML report by ID."""
@@ -346,7 +356,7 @@ async def create_share(payload: dict, request: Request):
     except ValueError:
         raise HTTPException(status_code=404, detail="Report not found.")
 
-    base = str(request.base_url).rstrip("/")
+    base = SHARE_BASE_URL or str(request.base_url).rstrip("/")
     share_url = f"{base}/report/{token_data['token']}"
 
     return JSONResponse({
@@ -354,6 +364,17 @@ async def create_share(payload: dict, request: Request):
         "token": token_data["token"],
         "expiresAt": token_data["expires_at"],
     })
+
+
+@app.get("/api/resolve-share")
+async def api_resolve_share(token: str = Query(..., description="Share token or report ID")):
+    """Resolve a share token (or report ID) to reportId. Returns { reportId } or 404."""
+    report_id = report_store.resolve_share_token(token)
+    if report_id is None and report_store.get_meta(token) is not None:
+        report_id = token  # Allow direct report ID in URL
+    if report_id is None:
+        raise HTTPException(status_code=404, detail="Token invalid or expired.")
+    return JSONResponse({"reportId": report_id})
 
 
 @app.get("/report/{token}")

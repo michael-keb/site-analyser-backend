@@ -6,7 +6,7 @@ FastAPI backend for the StoreConnect Site Analyser.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/michael-keb/site-analyser-backend)
 
-After deploy, set env vars in Render Dashboard: `FIRECRAWL_API_KEY`, `OPENAI_API_KEY`, `ALLOWED_ORIGINS` (add your frontend URL, e.g. `https://site-analyser-frontend.onrender.com`), and optionally `PIPEDRIVE_API_KEY` (creates a Pipedrive lead on each submission). Wraps the Firecrawl crawl pipeline and streams real-time SSE progress events to the frontend.
+After deploy, set env vars in Render Dashboard: `FIRECRAWL_API_KEY`, `OPENAI_API_KEY`, `ALLOWED_ORIGINS` (add your frontend URL, e.g. `https://site-analyser-frontend.onrender.com`), and optionally `PIPEDRIVE_API_KEY` (creates a Pipedrive deal on each submission). Set `PIPEDRIVE_DOMAIN` if using a company subdomain (e.g. `yourcompany` for yourcompany.pipedrive.com). Wraps the Firecrawl crawl pipeline and streams real-time SSE progress events to the frontend.
 
 ## Setup
 
@@ -71,7 +71,8 @@ The `/api/analyse` endpoint streams these events:
 | `FIRECRAWL_API_KEY` | — | Required. Get from firecrawl.dev |
 | `MAX_PAGES` | `15` | Max pages crawled per analysis |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | CORS origins (comma-separated) |
-| `PIPEDRIVE_API_KEY` | — | Optional. Creates a Pipedrive lead when a submission includes contact info |
+| `PIPEDRIVE_API_KEY` | — | Optional. Creates a Pipedrive deal when a submission includes contact info |
+| `PIPEDRIVE_DOMAIN` | — | Optional. Company subdomain (e.g. `yourcompany` for yourcompany.pipedrive.com) |
 
 ## Reports
 
