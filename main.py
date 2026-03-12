@@ -24,6 +24,8 @@ import uuid
 import asyncio
 from urllib.parse import urlparse
 
+from pydantic import BaseModel
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +35,7 @@ from sse_starlette.sse import EventSourceResponse
 from store import ReportStore
 from analyser import run_analysis, discover_urls
 from email_service import send_report_email
+from pipedrive_service import create_lead as pipedrive_create_lead
 
 # ── Load env ──────────────────────────────────────────────────────────────────
 # Load all env files — each call with override=True means last one wins.
@@ -46,6 +49,10 @@ load_dotenv(os.path.join(_here, ".env"), override=True)
 
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+PIPEDRIVE_API_KEY = (
+    os.environ.get("PIPEDRIVE_API_KEY") or
+    str(os.environ.get("Pipedrive", "")).strip('"\'')
+)
 MAX_PAGES = int(os.environ.get("MAX_PAGES", "15"))
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
@@ -56,6 +63,7 @@ logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
 _logger.info(f"FIRECRAWL_API_KEY: {'OK (fc-***)' if FIRECRAWL_API_KEY.startswith('fc-') else 'MISSING or invalid'}")
 _logger.info(f"OPENAI_API_KEY: {'OK (sk-***)' if OPENAI_API_KEY.startswith('sk-') else 'not set — using fallback analysis'}")
+_logger.info(f"PIPEDRIVE_API_KEY: {'OK' if PIPEDRIVE_API_KEY else 'not set — leads not created'}")
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -73,6 +81,13 @@ report_store = ReportStore()
 
 # In-memory job cancellation flags: job_id → asyncio.Event
 _cancel_events: dict[str, asyncio.Event] = {}
+
+
+class CreateLeadPayload(BaseModel):
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    url: str = ""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -118,6 +133,34 @@ async def discover(url: str = Query(..., description="Root URL to map")):
         None, discover_urls, normalised, FIRECRAWL_API_KEY, MAX_PAGES
     )
     return JSONResponse({"urls": urls, "total": len(urls)})
+
+
+@app.post("/api/create-lead")
+async def create_lead(payload: CreateLeadPayload):
+    """
+    Create a Pipedrive lead before starting analysis.
+    Body: { name, email, phone, url }
+    Returns { ok: true } on success, { ok: false, error: "..." } on failure.
+    Frontend must call this and wait for success before proceeding to analysis.
+    """
+    if not PIPEDRIVE_API_KEY:
+        return JSONResponse({"ok": False, "error": "Pipedrive not configured"})
+    url = payload.url or ""
+    try:
+        normalised = _validate_url(url)
+    except HTTPException:
+        return JSONResponse({"ok": False, "error": "Invalid URL"})
+    contact = {
+        "name": (payload.name or "").strip(),
+        "email": (payload.email or "").strip(),
+        "phone": (payload.phone or "").strip(),
+    }
+    if not contact.get("name") and not contact.get("email"):
+        return JSONResponse({"ok": False, "error": "Name or email required"})
+    result = pipedrive_create_lead(PIPEDRIVE_API_KEY, contact, normalised)
+    if result:
+        return JSONResponse({"ok": True})
+    return JSONResponse({"ok": False, "error": "Failed to create lead"})
 
 
 @app.get("/api/check")
@@ -178,6 +221,8 @@ async def analyse(
             url_list = None
 
     contact = {"name": name or "", "email": email or "", "phone": phone or ""} if (name or email or phone) else None
+
+    # Pipedrive lead is created by frontend via /api/create-lead before calling this
 
     job_id = uuid.uuid4().hex
     cancel_event = asyncio.Event()

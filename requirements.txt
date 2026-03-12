@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 sse-starlette>=2.1.0
 openai>=1.30.0
 pyppeteer>=1.0.0
+requests>=2.28.0
