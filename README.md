@@ -1,6 +1,12 @@
 # Site Analyser — Backend
 
-FastAPI backend for the StoreConnect Site Analyser. Wraps the Firecrawl crawl pipeline and streams real-time SSE progress events to the frontend.
+FastAPI backend for the StoreConnect Site Analyser.
+
+## Deploy to Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/michael-keb/site-analyser-backend)
+
+After deploy, set env vars in Render Dashboard: `FIRECRAWL_API_KEY`, `OPENAI_API_KEY`, `ALLOWED_ORIGINS` (add your frontend URL, e.g. `https://site-analyser-frontend.onrender.com`). Wraps the Firecrawl crawl pipeline and streams real-time SSE progress events to the frontend.
 
 ## Setup
 
