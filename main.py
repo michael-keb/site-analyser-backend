@@ -357,7 +357,7 @@ async def create_share(payload: dict, request: Request):
         raise HTTPException(status_code=404, detail="Report not found.")
 
     base = SHARE_BASE_URL or str(request.base_url).rstrip("/")
-    share_url = f"{base}/report/{token_data['token']}"
+    share_url = f"{base}/reports/{token_data['token']}"
 
     return JSONResponse({
         "url": share_url,
